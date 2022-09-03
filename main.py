@@ -14,7 +14,7 @@ class Experiment:
     def __init__(self, learning_rate=0.0005, ent_vec_dim=200, rel_vec_dim=200, 
                  num_iterations=500, batch_size=128, decay_rate=0., cuda=False, 
                  input_dropout=0.3, hidden_dropout1=0.4, hidden_dropout2=0.5,
-                 label_smoothing=0., loss_weight=0.5, regularization=1.0):
+                 label_smoothing=0., loss_weight=2., regularization=1.0, bias = 0.2):
         self.learning_rate = learning_rate
         self.ent_vec_dim = ent_vec_dim
         self.rel_vec_dim = rel_vec_dim
@@ -25,9 +25,13 @@ class Experiment:
         self.loss_weight = loss_weight
         self.cuda = cuda
         self.kwargs = {"input_dropout": input_dropout, "hidden_dropout1": hidden_dropout1,
-                       "hidden_dropout2": hidden_dropout2}
+                       "hidden_dropout2": hidden_dropout2, "bias": bias}
         self.regularization = regularization
-        
+        self.max_hit10 = 0
+        self.max_hit3 = 0
+        self.max_hit1 = 0
+        self.max_mrr = 0
+        self.bias = bias
     def get_data_idxs(self, data):
         data_idxs = [(self.entity_idxs[data[i][0]], self.relation_idxs[data[i][1]], \
                       self.entity_idxs[data[i][2]]) for i in range(len(data))]
@@ -116,6 +120,7 @@ class Experiment:
         print('Hits @1: {0}'.format(np.mean(hits[0])))
         print('Mean rank: {0}'.format(np.mean(ranks)))
         print('Mean reciprocal rank: {0}'.format(np.mean(1./np.array(ranks))))
+        return np.mean(hits[9]), np.mean(hits[2]), np.mean(hits[0]), np.mean(1./np.array(ranks))
 
 
 
@@ -189,6 +194,10 @@ class Experiment:
                 loss = model.loss(predictions_1, targets) + model.loss(predictions_2, targets) + self.loss_weight * margin_loss
                 loss.backward()
                 opt.step()
+                for i in model.W_low:
+                    i.data.clamp_(0, 1)   # 控制W_low的取值范围。
+                for i in model.W_high:
+                    i.data.clamp_(0, 1)   # 控制W_low的取值范围。
                 losses.append(loss.item())
             if self.decay_rate:
                 scheduler.step()
@@ -203,9 +212,18 @@ class Experiment:
                 if not it%2:
                     print("Test:")
                     start_test = time.time()
-                    self.evaluate(model, d.test_data)
+                    h10,h3,h1,mrr = self.evaluate(model, d.test_data)
                     print(time.time()-start_test)
-           
+                    if h10 > self.max_hit10:
+                        self.max_hit10 = h10
+                    if h3 > self.max_hit3:
+                        self.max_hit3 = h3
+                    if h1 > self.max_hit1:
+                        self.max_hit1 = h1
+                    if mrr > self.max_mrr:
+                        self.max_mrr = mrr
+                    print('max:', self.max_hit10, self.max_hit3, self.max_hit1, self.max_mrr)
+
 
         
 
@@ -238,6 +256,7 @@ if __name__ == '__main__':
     parser.add_argument("--loss_weight", type=float, default=2., nargs="?",
                         help="control the two-rela-loss.")
     parser.add_argument('--regularization', type=float, default=1.0)
+    parser.add_argument('--bias', type=float, default=0.2)
 
     args = parser.parse_args()
     dataset = args.dataset

@@ -9,19 +9,18 @@ class TuckER(torch.nn.Module):
 
         self.E = torch.nn.Embedding(len(d.entities), d1, max_norm=2, norm_type=3)
         # self.E2 = torch.nn.Embedding(len(d.entities), d1)
-        self.R_high = torch.nn.Embedding(len(d.relations), d2)
         self.R_low = torch.nn.Embedding(len(d.relations), d2)
+        self.R_high = torch.nn.Embedding(len(d.relations), d2)
         # self.W = torch.nn.Parameter(torch.tensor(np.random.uniform(-1, 1, (d2, d1, d1)),
         #                              dtype=torch.float, device="cuda", requires_grad=True))
-        self.W_low = torch.nn.Parameter(torch.tensor(np.random.uniform(-1, -0.5, (d2, d1, d1)),
+        self.W_low = torch.nn.Parameter(torch.tensor(np.random.uniform(0, 0.5, (d2, d1, d1)),
                                                      dtype=torch.float, device="cuda", requires_grad=True))
         self.W_high = torch.nn.Parameter(torch.tensor(np.random.uniform(0.5, 1, (d2, d1, d1)),
                                                      dtype=torch.float, device="cuda", requires_grad=True))
         # self.W = torch.nn.Parameter(torch.tensor(np.random.uniform(-1, 1, (d2, d1, d1)),  # 核心张量大小 参数范围（-1，1）
         #                             dtype=torch.float, device="cuda", requires_grad=True))
         # self.W = self.W_low + self.W_high
-        self.bias = torch.nn.Parameter(torch.tensor(np.random.uniform(0.2, 0.8, 1),
-                                                     dtype=torch.float, device="cuda", requires_grad=True))
+        self.bias = kwargs["bias"]  # 作为超参 参与训练
         self.input_dropout = torch.nn.Dropout(kwargs["input_dropout"])
         self.hidden_dropout1 = torch.nn.Dropout(kwargs["hidden_dropout1"])
         self.hidden_dropout2 = torch.nn.Dropout(kwargs["hidden_dropout2"])
@@ -37,7 +36,6 @@ class TuckER(torch.nn.Module):
         xavier_normal_(self.R_high.weight.data)
 
     def forward(self, e1_idx, r_idx):
-
         # self.E.weight.data = self.E.weight.data + self.E2.weight.data
         # self.W = self.W_low + self.W_high
 
@@ -47,6 +45,7 @@ class TuckER(torch.nn.Module):
         x = self.input_dropout(x)
         x = x.view(-1, 1, e1.size(1))
 
+        #  self.W_low = torch.clamp(self.W_low, 0, 1)
         r_low = self.R_low(r_idx)
         # print(r)
         W_mat = torch.mm(r_low, self.W_low.view(r_low.size(1), -1))
@@ -65,6 +64,7 @@ class TuckER(torch.nn.Module):
         x = self.bn0(e1)
         x = self.input_dropout(x)
         x = x.view(-1, 1, e1.size(1))
+        # self.W_high = torch.clamp(self.W_high, 0, 1)  # 保证正向作用不被抵消。
         W_mat = torch.mm(r_high, self.W_high.view(r_high.size(1), -1))
         W_mat = W_mat.view(-1, e1.size(1), e1.size(1))
         W_mat = self.hidden_dropout1(W_mat)
